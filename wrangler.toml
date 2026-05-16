@@ -5,7 +5,7 @@
 # 支持自定义域名 + 优选 IP 实现国内加速
 # ============================================
 
-name = "y-nav"
+name = "nav"
 main = "worker/index.ts"
 compatibility_date = "2024-01-01"
 
