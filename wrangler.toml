@@ -6,7 +6,7 @@
 # ============================================
 
 name = "y-nav"
-主 = "worker/index.ts"
+main = "worker/index.ts"
 compatibility_date = "2024-01-01"
 
 # 静态资源目录 (Workers Sites)
