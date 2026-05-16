@@ -6,7 +6,7 @@
 # ============================================
 
 name = "y-nav"
-main = "worker/index.ts"
+主 = "worker/index.ts"
 compatibility_date = "2024-01-01"
 
 # 静态资源目录 (Workers Sites)
@@ -17,17 +17,17 @@ bucket = "./dist"
 # 若需创建新的 KV: wrangler kv:namespace create YNAV_WORKER_KV
 [[kv_namespaces]]
 binding = "YNAV_WORKER_KV"
-id = "65af0541820e42438959ed8fc8688f0c"
-# preview_id = ""  # 本地预览时使用的 KV ID (可选)
+id = "8e40f1431c2b4f26858e31d8705f3c88"
+# preview_id = "" # 本地预览时使用的 KV ID (可选)
 
 # 环境变量 (也可以在 Cloudflare Dashboard 中设置)
 [vars]
-# SYNC_PASSWORD = ""  # 同步密码，建议在 Dashboard 中设置而非此处
+# SYNC_PASSWORD = "" # 同步密码，建议在 Dashboard 中设置而非此处
 
 # 生产环境配置 (可选)
 # [env.production]
 # routes = [
-#   { pattern = "your-domain.com/*", zone_name = "your-domain.com" }
+# { pattern = "your-domain.com/*", zone_name = "your-domain.com" }
 # ]
 
 # ============================================
