@@ -5,8 +5,8 @@
 # 支持自定义域名 + 优选 IP 实现国内加速
 # ============================================
 
-name = "y-nav"
-main = "worker/index.ts"
+name = "nav"
+主 = "worker/index.ts"
 compatibility_date = "2024-01-01"
 
 # 静态资源目录 (Workers Sites)
