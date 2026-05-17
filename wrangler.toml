@@ -5,8 +5,8 @@
 # 支持自定义域名 + 优选 IP 实现国内加速
 # ============================================
 
-名称 = "nav"
-main = "worker/index.ts"
+name= “nav”
+main= "worker/index.ts"
 兼容日期 = "2024-01-01"
 
 # 静态资源目录 (Workers Sites)
@@ -16,8 +16,8 @@ main = "worker/index.ts"
 # KV 命名空间绑定 (Workers 专用，与 Pages 的 YNAV_KV 区分)
 # 若需创建新的 KV: wrangler kv:namespace create YNAV_WORKER_KV
 [[kv_namespaces]]
-binding = \"YNAV_WORKER_KV\"
-8e40f1431c2b4f26858e31d8705f3c88"
+binding = \“YNAV_WORKER_KV\”"
+8e40f1431c2b4f26858e31d8705f3c88\""
 # preview_id = "" # 本地预览时使用的 KV ID (可选)
 
 # 环境变量 (也可以在 Cloudflare Dashboard 中设置)
