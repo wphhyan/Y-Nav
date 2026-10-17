@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Globe, Search, GripVertical, Check, RotateCcw, AlertCircle } from 'lucide-react';
 import { ExternalSearchSource } from '../../types';
+import { buildFaviconProxyUrlFromLink } from '../../utils/iconUrl';
 import { useDialog } from '../ui/DialogProvider';
 import {
   DndContext,
@@ -55,15 +56,8 @@ const SortableSearchItem = ({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  // 获取 favicon URL
-  const getFaviconUrl = (url: string) => {
-    try {
-      const hostname = new URL(url).hostname;
-      return `https://www.faviconextractor.com/favicon/${hostname}?larger=true`;
-    } catch (e) {
-      return '';
-    }
-  };
+  // 获取 favicon URL（走同源代理 /favicon/<host>，避免每个图标都跨域握手）
+  const getFaviconUrl = (url: string) => buildFaviconProxyUrlFromLink(url);
 
   return (
     <div

@@ -3,6 +3,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { LinkItem } from '../../types';
 import { getIconToneClass, getIconToneStyle } from '../../utils/iconTone';
+import LazyIcon from './LazyIcon';
 
 interface SortableLinkCardProps {
     link: LinkItem;
@@ -64,7 +65,7 @@ const SortableLinkCard: React.FC<SortableLinkCardProps> = ({
                             }`}
                         style={customToneStyle}
                     >
-                        {link.icon ? <img src={link.icon} alt="" className="w-5 h-5" /> : link.title.charAt(0)}
+                        <LazyIcon src={link.icon} fallback={link.title.charAt(0)} sizeClassName="w-5 h-5" />
                     </div>
 
                     {/* 标题 */}

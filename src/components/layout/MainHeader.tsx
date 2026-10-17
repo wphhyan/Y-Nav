@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Search, Moon, Sun, Menu, Monitor, Settings, GripVertical, Save, X, MoreHorizontal, LayoutGrid, List, CheckCircle } from 'lucide-react';
 import { ExternalSearchSource, SearchMode } from '../../types';
+import { buildFaviconProxyUrlFromLink } from '../../utils/iconUrl';
 
 interface MainHeaderProps {
   navTitleText: string;
@@ -126,7 +127,7 @@ const MainHeader: React.FC<MainHeaderProps> = ({
                 >
                   <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
                     <img
-                      src={`https://www.faviconextractor.com/favicon/${new URL(source.url).hostname}?larger=true`}
+                      src={buildFaviconProxyUrlFromLink(source.url)}
                       alt={source.name}
                       className="w-4 h-4"
                       onError={(e) => {
@@ -186,7 +187,7 @@ const MainHeader: React.FC<MainHeaderProps> = ({
               <Search size={15} />
             ) : (hoveredSearchSource || selectedSearchSource) ? (
               <img
-                src={`https://www.faviconextractor.com/favicon/${new URL((hoveredSearchSource || selectedSearchSource).url).hostname}?larger=true`}
+                src={buildFaviconProxyUrlFromLink((hoveredSearchSource || selectedSearchSource).url)}
                 alt={(hoveredSearchSource || selectedSearchSource).name}
                 className="w-4 h-4"
                 onError={(e) => {

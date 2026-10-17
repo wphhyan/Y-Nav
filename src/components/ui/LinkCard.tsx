@@ -2,6 +2,7 @@ import React from 'react';
 import { LinkItem } from '../../types';
 import { EyeOff, Settings } from 'lucide-react';
 import { getIconToneClass, getIconToneStyle } from '../../utils/iconTone';
+import LazyIcon from './LazyIcon';
 
 interface LinkCardProps {
     link: LinkItem;
@@ -73,13 +74,11 @@ const LinkCard: React.FC<LinkCardProps> = ({
             {/* Icon + Title Row */}
             <div className="flex items-center gap-3">
                 <div className={iconContainerClasses} style={customToneStyle}>
-                    {link.icon ? (
-                        <img src={link.icon} alt="" className={isDetailedView ? "w-6 h-6" : "w-5 h-5"} />
-                    ) : (
-                        <span className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase">
-                            {link.title.charAt(0)}
-                        </span>
-                    )}
+                    <LazyIcon
+                        src={link.icon}
+                        fallback={link.title.charAt(0)}
+                        sizeClassName={isDetailedView ? 'w-6 h-6' : 'w-5 h-5'}
+                    />
                 </div>
                 <h3 className={titleClasses} title={link.title}>
                     {link.title}

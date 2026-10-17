@@ -1,12 +1,16 @@
 @import "tailwindcss";
-@import "@fontsource/manrope";
-@import "@fontsource/outfit";
-@import "@fontsource/manrope/500.css";
-@import "@fontsource/manrope/600.css";
-@import "@fontsource/manrope/700.css";
-@import "@fontsource/outfit/500.css";
-@import "@fontsource/outfit/600.css";
-@import "@fontsource/outfit/700.css";
+/* 字体只引 latin 子集。
+   全量子集里 cyrillic / greek / vietnamese 等 20/32 个子集本站完全用不到，
+   却会让渲染阻塞的 CSS 膨胀到 138KB。中文由 font-family 里的
+   PingFang SC / Microsoft YaHei 等系统字体兜底，不受影响。 */
+@import "@fontsource/manrope/latin-400.css";
+@import "@fontsource/manrope/latin-500.css";
+@import "@fontsource/manrope/latin-600.css";
+@import "@fontsource/manrope/latin-700.css";
+@import "@fontsource/outfit/latin-400.css";
+@import "@fontsource/outfit/latin-500.css";
+@import "@fontsource/outfit/latin-600.css";
+@import "@fontsource/outfit/latin-700.css";
 @variant dark (&:where(.dark, .dark *));
 
 @theme {
