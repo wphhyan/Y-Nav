@@ -115,7 +115,8 @@ export const getCategoryCascadeIds = (categories: Category[], categoryIds: strin
 /**
  * 修复脏数据：清掉失效、自指、或会导致三级的 parentId。
  * 用于数据加载时兜底，保证界面永远只呈现两级结构。
- */export const normalizeCategoryParents = (categories: Category[]): Category[] => {
+ */
+export const normalizeCategoryParents = (categories: Category[]): Category[] => {
   const ids = new Set(categories.map(c => c.id));
 
   // 第一遍：去掉失效 / 自指的 parentId
@@ -153,6 +154,7 @@ export interface LinkGroup {
  * - 没有链接的子分类不出组（避免一排空网格）。
  * - 若最终只剩"父分类自身"这一组，返回 null 退回平铺，
  *   避免区块标题与页面标题重复。
+ * - 兜底：一个组都算不出来时返回 null 退回平铺，避免渲染出空容器。
  */
 export const groupLinksBySubcategory = (
   categories: Category[],
@@ -180,6 +182,9 @@ export const groupLinksBySubcategory = (
     if (childLinks.length === 0) return;
     groups.push({ id: child.id, name: child.name, icon: child.icon, links: childLinks });
   });
+
+  // 兜底：一个块都算不出来时退回平铺，避免渲染出空容器让链接"消失"
+  if (groups.length === 0) return null;
 
   if (groups.length === 1 && groups[0].id === selectedCategoryId) return null;
 
