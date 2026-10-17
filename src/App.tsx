@@ -9,6 +9,15 @@ const SettingsModal = lazy(() => import('./components/modals/SettingsModal'));
 const SearchConfigModal = lazy(() => import('./components/modals/SearchConfigModal'));
 const SyncConflictModal = lazy(() => import('./components/modals/SyncConflictModal'));
 
+/**
+ * 空闲预取用到的浏览器 API（`requestIdleCallback` 不一定在 TS 的 DOM 类型里，
+ * 也并非所有浏览器都实现，所以要自己声明 + 运行时判空）。
+ */
+type IdleScheduler = Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    cancelIdleCallback?: (handle: number) => void;
+};
+
 // Eagerly load frequently used components
 import ContextMenu from './components/layout/ContextMenu';
 import Sidebar from './components/layout/Sidebar';
@@ -151,6 +160,56 @@ function App() {
     if (!isLoaded) return;
     refreshRemoteAuth();
   }, [isLoaded, refreshRemoteAuth]);
+
+  // === 弹窗 chunk 的空闲预取 ===
+  // 弹窗现在按 isOpen 按需挂载（见下方 Suspense 区），首次打开才会去拉 chunk。
+  // 为了不让"首次打开"变慢，这里在页面 load 之后、浏览器空闲时把这些 chunk 预热好。
+  // 下面的 import 说明符与 React.lazy 里的一致，因此指向同一份 chunk；
+  // 预取本身不做任何状态变更，失败了也只是退回"打开时再加载"。
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    let cancelled = false;
+    let idleHandle: number | undefined;
+    let timerHandle: ReturnType<typeof setTimeout> | undefined;
+
+    const prefetchModals = () => {
+      if (cancelled) return;
+      void import('./components/modals/LinkModal');
+      void import('./components/modals/CategoryManagerModal');
+      void import('./components/modals/ImportModal');
+      void import('./components/modals/SettingsModal');
+      void import('./components/modals/SearchConfigModal');
+      void import('./components/modals/SyncConflictModal');
+    };
+
+    const scheduleIdlePrefetch = () => {
+      if (cancelled) return;
+      const idleWindow = window as IdleScheduler;
+      if (typeof idleWindow.requestIdleCallback === 'function') {
+        // timeout 兜底：即使页面一直不空闲，也不会无限期拖着不预取
+        idleHandle = idleWindow.requestIdleCallback(prefetchModals, { timeout: 2500 });
+      } else {
+        timerHandle = setTimeout(prefetchModals, 1500);
+      }
+    };
+
+    if (document.readyState === 'complete') {
+      scheduleIdlePrefetch();
+    } else {
+      window.addEventListener('load', scheduleIdlePrefetch, { once: true });
+    }
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('load', scheduleIdlePrefetch);
+      const idleWindow = window as IdleScheduler;
+      if (idleHandle !== undefined && typeof idleWindow.cancelIdleCallback === 'function') {
+        idleWindow.cancelIdleCallback(idleHandle);
+      }
+      if (timerHandle !== undefined) clearTimeout(timerHandle);
+    };
+  }, [isLoaded]);
 
   // === Theme ===
   const { themeMode, darkMode, setThemeAndApply } = useTheme();
@@ -1284,71 +1343,86 @@ function App() {
     <div className={`flex h-screen overflow-hidden ${toneClasses.text}`}>
       {/* Modals - Wrapped in Suspense for lazy loading */}
       <Suspense fallback={null}>
-        <CategoryManagerModal
-          isOpen={isCatManagerOpen}
-          onClose={() => setIsCatManagerOpen(false)}
-          categories={categories}
-          onUpdateCategories={handleUpdateCategories}
-          onDeleteCategory={handleDeleteCategory}
-          onDeleteCategories={handleDeleteCategories}
-          closeOnBackdrop={closeOnBackdrop}
-        />
+        {/* 以下弹窗全部按 isOpen 按需挂载。
+            这些组件关闭时本来就 `return null`，所以渲染结果与"常驻挂载"完全一致；
+            但按需挂载能避免 `React.lazy` 在首屏渲染时就解析模块 —— 否则每次冷启动
+            都要把全部弹窗的 chunk（含 154KB 的 lucide、50KB 的 vendor-ai）拉一遍。
+            首次打开所需的延迟由下面的空闲预取抹平。 */}
+        {isCatManagerOpen && (
+          <CategoryManagerModal
+            isOpen={isCatManagerOpen}
+            onClose={() => setIsCatManagerOpen(false)}
+            categories={categories}
+            onUpdateCategories={handleUpdateCategories}
+            onDeleteCategory={handleDeleteCategory}
+            onDeleteCategories={handleDeleteCategories}
+            closeOnBackdrop={closeOnBackdrop}
+          />
+        )}
 
-        <ImportModal
-          isOpen={isImportModalOpen}
-          onClose={() => setIsImportModalOpen(false)}
-          existingLinks={links}
-          categories={categories}
-          onImport={handleImportConfirm}
-          onImportSearchConfig={restoreSearchConfig}
-          onImportAIConfig={restoreAIConfig}
-          closeOnBackdrop={closeOnBackdrop}
-        />
+        {isImportModalOpen && (
+          <ImportModal
+            isOpen={isImportModalOpen}
+            onClose={() => setIsImportModalOpen(false)}
+            existingLinks={links}
+            categories={categories}
+            onImport={handleImportConfirm}
+            onImportSearchConfig={restoreSearchConfig}
+            onImportAIConfig={restoreAIConfig}
+            closeOnBackdrop={closeOnBackdrop}
+          />
+        )}
 
-        <SettingsModal
-          isOpen={isSettingsModalOpen}
-          onClose={() => setIsSettingsModalOpen(false)}
-          config={aiConfig}
-          siteSettings={siteSettings}
-          onSave={saveAIConfig}
-          links={links}
-          onUpdateLinks={(newLinks) => updateData(newLinks, categories)}
-          onOpenImport={() => setIsImportModalOpen(true)}
-          onCreateBackup={handleCreateBackup}
-          onRestoreBackup={handleRestoreBackup}
-          onDeleteBackup={handleDeleteBackup}
-          onSyncPasswordChange={handleSyncPasswordChange}
-          onViewPasswordChange={handleViewPasswordChange}
-          useSeparatePrivacyPassword={useSeparatePrivacyPassword}
-          onMigratePrivacyMode={handleMigratePrivacyMode}
-          privacyGroupEnabled={privacyGroupEnabled}
-          onTogglePrivacyGroup={handleTogglePrivacyGroup}
-          privacyAutoUnlockEnabled={privacyAutoUnlockEnabled}
-          onTogglePrivacyAutoUnlock={handleTogglePrivacyAutoUnlock}
-          syncStatus={syncStatus}
-          lastSyncTime={lastSyncTime}
-          webmasterUnlocked={webmasterUnlocked}
-          onWebmasterUnlockedChange={setWebmasterUnlockedPersist}
-          readOnly={isReadOnly}
-          closeOnBackdrop={closeOnBackdrop}
-        />
+        {isSettingsModalOpen && (
+          <SettingsModal
+            isOpen={isSettingsModalOpen}
+            onClose={() => setIsSettingsModalOpen(false)}
+            config={aiConfig}
+            siteSettings={siteSettings}
+            onSave={saveAIConfig}
+            links={links}
+            onUpdateLinks={(newLinks) => updateData(newLinks, categories)}
+            onOpenImport={() => setIsImportModalOpen(true)}
+            onCreateBackup={handleCreateBackup}
+            onRestoreBackup={handleRestoreBackup}
+            onDeleteBackup={handleDeleteBackup}
+            onSyncPasswordChange={handleSyncPasswordChange}
+            onViewPasswordChange={handleViewPasswordChange}
+            useSeparatePrivacyPassword={useSeparatePrivacyPassword}
+            onMigratePrivacyMode={handleMigratePrivacyMode}
+            privacyGroupEnabled={privacyGroupEnabled}
+            onTogglePrivacyGroup={handleTogglePrivacyGroup}
+            privacyAutoUnlockEnabled={privacyAutoUnlockEnabled}
+            onTogglePrivacyAutoUnlock={handleTogglePrivacyAutoUnlock}
+            syncStatus={syncStatus}
+            lastSyncTime={lastSyncTime}
+            webmasterUnlocked={webmasterUnlocked}
+            onWebmasterUnlockedChange={setWebmasterUnlockedPersist}
+            readOnly={isReadOnly}
+            closeOnBackdrop={closeOnBackdrop}
+          />
+        )}
 
-        <SearchConfigModal
-          isOpen={isSearchConfigModalOpen}
-          onClose={() => setIsSearchConfigModalOpen(false)}
-          sources={externalSearchSources}
-          onSave={(sources) => saveSearchConfig(sources, searchMode)}
-          closeOnBackdrop={closeOnBackdrop}
-        />
+        {isSearchConfigModalOpen && (
+          <SearchConfigModal
+            isOpen={isSearchConfigModalOpen}
+            onClose={() => setIsSearchConfigModalOpen(false)}
+            sources={externalSearchSources}
+            onSave={(sources) => saveSearchConfig(sources, searchMode)}
+            closeOnBackdrop={closeOnBackdrop}
+          />
+        )}
 
         {/* Sync Conflict Modal */}
-        <SyncConflictModal
-          isOpen={syncConflictOpen}
-          conflict={currentConflict}
-          onResolve={handleResolveConflict}
-          onClose={() => setSyncConflictOpen(false)}
-          closeOnBackdrop={closeOnBackdrop}
-        />
+        {syncConflictOpen && (
+          <SyncConflictModal
+            isOpen={syncConflictOpen}
+            conflict={currentConflict}
+            onResolve={handleResolveConflict}
+            onClose={() => setSyncConflictOpen(false)}
+            closeOnBackdrop={closeOnBackdrop}
+          />
+        )}
       </Suspense>
 
       {/* Sync Status Indicator - Fixed bottom right */}
@@ -1536,28 +1610,32 @@ function App() {
 
       {/* Link Modal */}
       <Suspense fallback={null}>
-        <LinkModal
-          isOpen={isModalOpen}
-          onClose={closeLinkModal}
-          onSave={editingLink ? handleEditLink : handleAddLink}
-          onDelete={editingLink ? handleDeleteLink : undefined}
-          categories={visibleCategories}
-          initialData={editingLink || (prefillLink as LinkItem)}
-          aiConfig={aiConfig}
-          defaultCategoryId={selectedCategory !== 'all' && selectedCategory !== PRIVATE_CATEGORY_ID ? selectedCategory : undefined}
-          closeOnBackdrop={closeOnBackdrop}
-        />
-        <LinkModal
-          isOpen={isPrivateModalOpen}
-          onClose={closePrivateModal}
-          onSave={editingPrivateLink ? handlePrivateEditLink : handlePrivateAddLink}
-          onDelete={editingPrivateLink ? handlePrivateDeleteLink : undefined}
-          categories={privateCategories}
-          initialData={editingPrivateLink || (prefillPrivateLink as LinkItem)}
-          aiConfig={aiConfig}
-          defaultCategoryId={PRIVATE_CATEGORY_ID}
-          closeOnBackdrop={closeOnBackdrop}
-        />
+        {isModalOpen && (
+          <LinkModal
+            isOpen={isModalOpen}
+            onClose={closeLinkModal}
+            onSave={editingLink ? handleEditLink : handleAddLink}
+            onDelete={editingLink ? handleDeleteLink : undefined}
+            categories={visibleCategories}
+            initialData={editingLink || (prefillLink as LinkItem)}
+            aiConfig={aiConfig}
+            defaultCategoryId={selectedCategory !== 'all' && selectedCategory !== PRIVATE_CATEGORY_ID ? selectedCategory : undefined}
+            closeOnBackdrop={closeOnBackdrop}
+          />
+        )}
+        {isPrivateModalOpen && (
+          <LinkModal
+            isOpen={isPrivateModalOpen}
+            onClose={closePrivateModal}
+            onSave={editingPrivateLink ? handlePrivateEditLink : handlePrivateAddLink}
+            onDelete={editingPrivateLink ? handlePrivateDeleteLink : undefined}
+            categories={privateCategories}
+            initialData={editingPrivateLink || (prefillPrivateLink as LinkItem)}
+            aiConfig={aiConfig}
+            defaultCategoryId={PRIVATE_CATEGORY_ID}
+            closeOnBackdrop={closeOnBackdrop}
+          />
+        )}
       </Suspense>
 
       {/* Context Menu */}
