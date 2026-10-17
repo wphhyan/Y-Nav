@@ -1,18 +1,13 @@
 /**
  * Y-Nav Cloudflare Worker 入口
- * 
+ *
  * 功能:
- * 1. 托管静态资源 (SPA)
- * 2. 处理 /api/sync 相关请求
- * 
- * 此文件整合了 Workers Sites 和 API 逻辑
+ * 1. 处理 /api/sync 相关请求
+ * 2. 其余请求交给 Static Assets 绑定托管静态资源 (SPA)
+ *
+ * 静态资源由 Cloudflare Static Assets 提供（见 wrangler.toml 的 [assets]）。
+ * 命中资源的请求由边缘直接返回，不会调用本 Worker。
  */
-
-import { getAssetFromKV, NotFoundError, MethodNotAllowedError } from '@cloudflare/kv-asset-handler';
-// @ts-ignore - 这是 Workers Sites 自动生成的 manifest
-import manifestJSON from '__STATIC_CONTENT_MANIFEST';
-
-const assetManifest = JSON.parse(manifestJSON);
 
 // ============================================
 // 类型定义
@@ -29,7 +24,8 @@ interface Env {
     YNAV_WORKER_KV: KVNamespaceInterface;
     SYNC_PASSWORD?: string;
     VIEW_PASSWORD?: string;
-    __STATIC_CONTENT: KVNamespace;
+    /** Static Assets 绑定（对应 wrangler.toml 中 [assets] 的 binding） */
+    ASSETS: Fetcher;
 }
 
 interface SyncMetadata {
@@ -412,43 +408,6 @@ async function handleDeleteBackup(request: Request, env: Env): Promise<Response>
 }
 
 // ============================================
-// 静态资源处理
-// ============================================
-
-async function handleStaticAssets(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    try {
-        return await getAssetFromKV(
-            {
-                request,
-                waitUntil: ctx.waitUntil.bind(ctx),
-            },
-            {
-                ASSET_NAMESPACE: env.__STATIC_CONTENT,
-                ASSET_MANIFEST: assetManifest,
-            }
-        );
-    } catch (e) {
-        if (e instanceof NotFoundError) {
-            // SPA fallback: 返回 index.html
-            const notFoundRequest = new Request(new URL('/index.html', request.url).toString(), request);
-            return await getAssetFromKV(
-                {
-                    request: notFoundRequest,
-                    waitUntil: ctx.waitUntil.bind(ctx),
-                },
-                {
-                    ASSET_NAMESPACE: env.__STATIC_CONTENT,
-                    ASSET_MANIFEST: assetManifest,
-                }
-            );
-        } else if (e instanceof MethodNotAllowedError) {
-            return new Response('Method Not Allowed', { status: 405 });
-        }
-        return new Response('Internal Error', { status: 500 });
-    }
-}
-
-// ============================================
 // 主入口
 // ============================================
 
@@ -461,7 +420,10 @@ export default {
             return handleApiSync(request, env);
         }
 
-        // 静态资源
-        return handleStaticAssets(request, env, ctx);
+        // 其余请求交给 Static Assets 绑定。
+        // - 命中静态资源：直接返回该文件；
+        // - 未命中：由 wrangler.toml 的 not_found_handling = "single-page-application"
+        //   兜底返回 index.html (200)，SPA 深链接因此可用。
+        return env.ASSETS.fetch(request);
     }
 };
