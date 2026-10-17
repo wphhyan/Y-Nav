@@ -33,8 +33,10 @@ export default defineConfig(({ mode }) => {
               '@dnd-kit/sortable',
               '@dnd-kit/utilities'
             ],
-            // Icon library
-            'vendor-icons': ['lucide-react'],
+            // 注意：不要给 lucide-react 设 manualChunks。
+            // 一旦把整包 lucide 固定成单一 chunk，入口就必然静态依赖它，
+            // 863KB 的完整图标库会被重新拖回首屏关键路径。交给 Rollup 自动拆分后，
+            // 入口只保留 Icon.tsx 里显式引用的少量图标，其余进入按需加载的 chunk。
             // AI library
             'vendor-ai': ['@google/genai'],
           }

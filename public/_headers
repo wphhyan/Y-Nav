@@ -1,0 +1,10 @@
+# 静态资源缓存策略（Cloudflare Static Assets 的 _headers 文件）
+#
+# /assets/* 下全部是带内容哈希的文件名（index-DpWB6GaT.js、manrope-latin-400-*.woff2 …），
+# 内容一变文件名就变，因此可以放心长期强缓存。
+# 默认它们会带 `Cache-Control: public, max-age=0, must-revalidate`，
+# 每次访问都要为每个文件发一次 304 校验请求；在走代理（单次往返约 200ms）的环境里
+# 这几个往返是纯粹的浪费。
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
