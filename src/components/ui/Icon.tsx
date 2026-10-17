@@ -74,11 +74,21 @@ const eagerIcons: Record<string, LucideIcon> = {
 };
 
 /**
+ * lucide 图标名的形状：PascalCase。
+ *
+ * `Category.icon` 的类型注释是"Lucide 图标名或 emoji"，历史数据/导入数据里也可能
+ * 出现小写或其它脏字符串。这些名字永远不可能命中 lucide，必须直接兜底 ——
+ * 否则每渲染一次就会白拉一次 154KB 的完整图标库。
+ */
+const LUCIDE_NAME_SHAPE = /^[A-Z][A-Za-z0-9]*$/;
+
+/**
  * 已知在 lucide 中不存在的名字。
  *
  * lucide 移除了大部分品牌图标，但 `IconSelector` 的常用列表和用户的历史数据里
- * 仍可能留着这类名字。必须在这里直接兜底：否则每渲染一次就会触发一次完整图标库
- * （158KB gzip）的下载，反而比改动前更慢。
+ * 仍可能留着这类名字（例如用户数据里的 `Firefox`）。这批名字形状合法、但永远
+ * 命中不了，必须直接兜底：否则每渲染一次就会触发一次完整图标库
+ * （154KB gzip）的下载，反而比改动前更慢。
  */
 const unavailableIcons = new Set([
     'Firefox', 'Safari', 'Edge',
@@ -121,7 +131,7 @@ const Icon: React.FC<IconProps> = ({ name, size = 20, className }) => {
         return <Eager size={size} className={className} />;
     }
 
-    if (unavailableIcons.has(name)) {
+    if (unavailableIcons.has(name) || !LUCIDE_NAME_SHAPE.test(name)) {
         return <Link size={size} className={className} />;
     }
 
