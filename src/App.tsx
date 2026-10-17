@@ -48,6 +48,7 @@ import {
   getDeviceId
 } from './utils/constants';
 import { decryptPrivateVault, encryptPrivateVault } from './utils/privateVault';
+import { getCategoryScopeIds, getChildCategories, isTopLevelCategory } from './utils/categoryTree';
 
 function App() {
   // === Core Data ===
@@ -502,11 +503,18 @@ function App() {
     ? !!(remoteAuth?.canView || remoteAuth?.canWrite || webmasterUnlocked)
     : hasRevealCredential;
   const hiddenCategoryIds = useMemo(() => {
-    return new Set(categories.filter(c => c.hidden).map(c => c.id));
+    // 隐藏需要穿透父子：父分类隐藏时，其子分类同样视为隐藏（否则访客能通过子分类看到本该藏起来的内容）
+    const ids = new Set<string>();
+    categories.forEach(cat => {
+      if (!cat.hidden) return;
+      ids.add(cat.id);
+      getChildCategories(categories, cat.id).forEach(child => ids.add(child.id));
+    });
+    return ids;
   }, [categories]);
   const visibleCategories = useMemo(() => {
-    return canRevealHidden ? categories : categories.filter(c => !c.hidden);
-  }, [categories, canRevealHidden]);
+    return canRevealHidden ? categories : categories.filter(c => !hiddenCategoryIds.has(c.id));
+  }, [categories, canRevealHidden, hiddenCategoryIds]);
   const visibleLinks = useMemo(() => {
     if (canRevealHidden) return links;
     return links.filter(l => !l.hidden && !hiddenCategoryIds.has(l.categoryId));
@@ -515,11 +523,10 @@ function App() {
   useEffect(() => {
     if (canRevealHidden) return;
     if (selectedCategory === 'all' || selectedCategory === PRIVATE_CATEGORY_ID) return;
-    const selected = categories.find(c => c.id === selectedCategory);
-    if (selected?.hidden) {
+    if (hiddenCategoryIds.has(selectedCategory)) {
       setSelectedCategory('all');
     }
-  }, [canRevealHidden, selectedCategory, categories, setSelectedCategory]);
+  }, [canRevealHidden, selectedCategory, hiddenCategoryIds, setSelectedCategory]);
 
   const pinnedLinks = useMemo(() => {
     const filteredPinnedLinks = visibleLinks.filter(l => l.pinned);
@@ -546,9 +553,10 @@ function App() {
       );
     }
 
-    // Category Filter
+    // Category Filter（父分类聚合：包含自身与所有子分类的链接）
     if (selectedCategory !== 'all' && selectedCategory !== PRIVATE_CATEGORY_ID) {
-      result = result.filter(l => l.categoryId === selectedCategory);
+      const scopeIds = new Set(getCategoryScopeIds(categories, selectedCategory));
+      result = result.filter(l => scopeIds.has(l.categoryId));
     }
 
     // Sort by order
@@ -557,7 +565,7 @@ function App() {
       const bOrder = b.order !== undefined ? b.order : b.createdAt;
       return aOrder - bOrder;
     });
-  }, [visibleLinks, selectedCategory, searchQuery]);
+  }, [visibleLinks, selectedCategory, searchQuery, categories]);
 
   const displayedPrivateLinks = useMemo(() => {
     let result = privateLinks;
@@ -670,10 +678,16 @@ function App() {
   });
 
   // === Computed: Sorting States ===
+  // 父分类是聚合视图（含子分类链接），跨分类拖拽排序语义不明确，因此父分类下不提供排序
+  const selectedCategoryHasChildren = useMemo(
+    () => getChildCategories(visibleCategories, selectedCategory).length > 0,
+    [visibleCategories, selectedCategory]
+  );
   const canSortPinned = !isReadOnly && selectedCategory === 'all' && !searchQuery && pinnedLinks.length > 1;
   const canSortCategory = selectedCategory !== 'all'
     && !isReadOnly
     && selectedCategory !== PRIVATE_CATEGORY_ID
+    && !selectedCategoryHasChildren
     && displayedLinks.length > 1;
 
   // === Computed: Link Counts ===
@@ -696,6 +710,14 @@ function App() {
       if (link.pinned) {
         counts['pinned']++;
       }
+    });
+
+    // 父分类角标 = 自身链接 + 所有子分类链接（与聚合视图保持一致）
+    visibleCategories.forEach(cat => {
+      if (!isTopLevelCategory(visibleCategories, cat)) return;
+      getChildCategories(visibleCategories, cat.id).forEach(child => {
+        counts[cat.id] += counts[child.id] || 0;
+      });
     });
 
     return counts;

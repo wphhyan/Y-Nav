@@ -4,6 +4,7 @@ import { LinkItem, Category, AIConfig } from '../../types';
 import { generateLinkDescription, suggestCategory } from '../../services/geminiService';
 import { useDialog } from '../ui/DialogProvider';
 import { getIconToneStyle, normalizeHexColor } from '../../utils/iconTone';
+import { flattenCategoryTree } from '../../utils/categoryTree';
 
 const FAVICON_CACHE_KEY = 'ynav_favicon_cache';
 
@@ -415,8 +416,10 @@ const LinkModal: React.FC<LinkModalProps> = ({
                 onChange={(e) => setCategoryId(e.target.value)}
                 className="w-full appearance-none pl-3 pr-8 py-1.5 text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-slate-300 dark:focus:ring-slate-600 cursor-pointer"
               >
-                {categories.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                {flattenCategoryTree(categories).map(({ cat, depth }) => (
+                  <option key={cat.id} value={cat.id}>
+                    {depth > 0 ? `\u00A0\u00A0\u00A0└ ${cat.name}` : cat.name}
+                  </option>
                 ))}
               </select>
               <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">

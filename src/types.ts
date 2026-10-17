@@ -18,6 +18,7 @@ export interface Category {
   name: string;
   icon: string; // Lucide icon name or emoji
   hidden?: boolean; // Hidden category (requires password to reveal in webmaster mode)
+  parentId?: string; // Parent category id. undefined = top-level (only 2 levels are supported)
 }
 
 export interface SiteSettings {

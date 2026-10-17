@@ -138,7 +138,17 @@ function buildSafeData(data: YNavSyncData, includeHidden: boolean): YNavSyncData
         };
     }
 
-    const visibleCategories = (data.categories || []).filter((c: any) => !c?.hidden);
+    const allCategories = (data.categories || []) as any[];
+    // 隐藏需要穿透父子：父分类隐藏时，其子分类同样视为隐藏，
+    // 否则访客可以经由子分类拿到本该隐藏的分类与链接。
+    const hiddenCategoryIds = new Set(
+        allCategories.filter((c: any) => c?.hidden).map((c: any) => c.id)
+    );
+    const visibleCategories = allCategories.filter((c: any) => {
+        if (c?.hidden) return false;
+        if (c?.parentId && hiddenCategoryIds.has(c.parentId)) return false;
+        return true;
+    });
     const visibleCategoryIds = new Set(visibleCategories.map((c: any) => c.id));
     const visibleLinks = (data.links || []).filter((l: any) => {
         if (l?.hidden) return false;
