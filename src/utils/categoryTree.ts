@@ -1,4 +1,4 @@
-import { Category } from '../types';
+import { Category, LinkItem } from '../types';
 
 /**
  * 分类层级工具
@@ -135,4 +135,58 @@ export const normalizeCategoryParents = (categories: Category[]): Category[] => 
     }
     return cat;
   });
+};
+
+/** 主界面里"按子分类分块"的一块 */
+export interface LinkGroup {
+  id: string;
+  name: string;
+  icon: string;
+  links: LinkItem[];
+}
+
+/**
+ * 父分类视图：把链接按子分类分组，供主界面分块渲染。
+ *
+ * 规则（按产品决策）：
+ * - 选中的分类没有子分类 → 返回 null，调用方维持原来的单张网格。
+ * - 父分类自己直接挂的链接单独成组，标题用父分类名。
+ * - 没有链接的子分类不出组（避免一排空网格）。
+ * - 若最终只剩"父分类自身"这一组，返回 null 退回平铺，
+ *   避免区块标题与页面标题重复。
+ * - 兜底：一个组都算不出来时返回 null 退回平铺，避免渲染出空容器。
+ */
+export const groupLinksBySubcategory = (
+  categories: Category[],
+  selectedCategoryId: string,
+  links: LinkItem[]
+): LinkGroup[] | null => {
+  const children = getChildCategories(categories, selectedCategoryId);
+  if (children.length === 0) return null;
+
+  const selected = categories.find(c => c.id === selectedCategoryId);
+  const groups: LinkGroup[] = [];
+
+  const ownLinks = links.filter(link => link.categoryId === selectedCategoryId);
+  if (ownLinks.length > 0) {
+    groups.push({
+      id: selectedCategoryId,
+      name: selected?.name || '未命名分类',
+      icon: selected?.icon || 'Folder',
+      links: ownLinks
+    });
+  }
+
+  children.forEach(child => {
+    const childLinks = links.filter(link => link.categoryId === child.id);
+    if (childLinks.length === 0) return;
+    groups.push({ id: child.id, name: child.name, icon: child.icon, links: childLinks });
+  });
+
+  // 兜底：一个块都算不出来时退回平铺，避免渲染出空容器让链接"消失"
+  if (groups.length === 0) return null;
+
+  if (groups.length === 1 && groups[0].id === selectedCategoryId) return null;
+
+  return groups;
 };

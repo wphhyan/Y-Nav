@@ -5,7 +5,7 @@ import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { Pin, Trash2, CheckSquare, Upload, Search, X, RefreshCw } from 'lucide-react';
 import { Category, LinkItem } from '../../types';
 import { PRIVATE_CATEGORY_ID } from '../../utils/constants';
-import { flattenCategoryTree } from '../../utils/categoryTree';
+import { flattenCategoryTree, groupLinksBySubcategory } from '../../utils/categoryTree';
 import Icon from '../ui/Icon';
 import LinkCard from '../ui/LinkCard';
 import SortableLinkCard from '../ui/SortableLinkCard';
@@ -139,6 +139,31 @@ const LinkSections: React.FC<LinkSectionsProps> = ({
       setIsPrivateUnlocking(false);
     }
   }, [isPrivateCategory]);
+
+  /**
+   * 父分类视图：按子分类分块展示卡片。
+   * 纯逻辑在 groupLinksBySubcategory 里（可单测），这里只负责"什么时候分块"：
+   * 搜索时保持平铺（跨分类结果更好扫读），'all' 与隐私分组不分块。
+   */
+  const categoryGroups = React.useMemo(() => {
+    if (searchQuery) return null;
+    if (selectedCategory === 'all' || selectedCategory === PRIVATE_CATEGORY_ID) return null;
+    return groupLinksBySubcategory(categories, selectedCategory, displayedLinks);
+  }, [searchQuery, selectedCategory, categories, displayedLinks]);
+
+  const renderLinkCard = (link: LinkItem) => (
+    <LinkCard
+      key={link.id}
+      link={link}
+      siteCardStyle={siteCardStyle}
+      isBatchEditMode={isBatchEditMode}
+      isSelected={selectedLinks.has(link.id)}
+      readOnly={readOnly}
+      onSelect={onLinkSelect}
+      onContextMenu={onLinkContextMenu}
+      onEdit={onLinkEdit}
+    />
+  );
 
   const handlePrivateUnlock = React.useCallback(async () => {
     setIsPrivateUnlocking(true);
@@ -567,21 +592,31 @@ const LinkSections: React.FC<LinkSectionsProps> = ({
                       </div>
                     </SortableContext>
                   </DndContext>
+                ) : categoryGroups ? (
+                  <div className="space-y-8">
+                    {categoryGroups.map((group) => (
+                      <div key={group.id}>
+                        {/* 分块标题：图标 + 名称 + 数量 */}
+                        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-200/50 dark:border-white/5">
+                          <div className="p-1.5 rounded-md bg-accent/10">
+                            <Icon name={group.icon} size={14} className="text-accent" />
+                          </div>
+                          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                            {group.name}
+                          </h3>
+                          <span className="px-2 py-0.5 text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-full">
+                            {group.links.length}
+                          </span>
+                        </div>
+                        <div className={`grid gap-4 ${gridClassName}`}>
+                          {group.links.map(renderLinkCard)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <div className={`grid gap-4 ${gridClassName}`}>
-                    {displayedLinks.map((link) => (
-                      <LinkCard
-                        key={link.id}
-                        link={link}
-                        siteCardStyle={siteCardStyle}
-                        isBatchEditMode={isBatchEditMode}
-                        isSelected={selectedLinks.has(link.id)}
-                        readOnly={readOnly}
-                        onSelect={onLinkSelect}
-                        onContextMenu={onLinkContextMenu}
-                        onEdit={onLinkEdit}
-                      />
-                    ))}
+                    {displayedLinks.map(renderLinkCard)}
                   </div>
                 )
               )
