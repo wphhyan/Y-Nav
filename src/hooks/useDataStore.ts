@@ -304,8 +304,11 @@ export const useDataStore = () => {
             knownIds.add(next.id);
         });
 
+        // 兜底：导入的数据本身若含三级 / 自指 / 失效父级，一并修正，保证只存在两级
+        const normalizedCategories = normalizeCategoryParents(mergedCategories);
+
         const mergedLinks = [...links, ...newLinks];
-        updateData(mergedLinks, mergedCategories);
+        updateData(mergedLinks, normalizedCategories);
     }, [links, categories, updateData]);
 
     return {
