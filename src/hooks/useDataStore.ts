@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { LinkItem, Category, DEFAULT_CATEGORIES, INITIAL_LINKS } from '../types';
 import { arrayMove } from '@dnd-kit/sortable';
 import { LOCAL_STORAGE_KEY, FAVICON_CACHE_KEY } from '../utils/constants';
+import { getCategoryCascadeIds, normalizeCategoryParents } from '../utils/categoryTree';
 import { useDialog } from '../components/ui/DialogProvider';
 
 export const useDataStore = () => {
@@ -52,6 +53,9 @@ export const useDataStore = () => {
                 let loadedCategories = parsed.categories && parsed.categories.length > 0
                     ? parsed.categories
                     : DEFAULT_CATEGORIES;
+
+                // 层级兜底：清掉失效 / 自指 / 会导致三级的 parentId
+                loadedCategories = normalizeCategoryParents(loadedCategories);
 
                 // 如果"常用推荐"分类存在，确保它是第一个分类
                 const commonIndex = loadedCategories.findIndex((c: Category) => c.id === 'common');
@@ -251,41 +255,60 @@ export const useDataStore = () => {
     }, [links, categories, updateData]);
 
     const deleteCategory = useCallback((catId: string) => {
-        if (categories.length <= 1) {
+        // 级联：删除父分类时，其子分类一并删除
+        const removedIds = new Set(getCategoryCascadeIds(categories, [catId]));
+        const newCats = categories.filter(c => !removedIds.has(c.id));
+        if (newCats.length === 0) {
             notify('至少保留一个分类', 'warning');
             return;
         }
-        const newCats = categories.filter(c => c.id !== catId);
-        if (newCats.length === categories.length) return;
         const fallbackCategory = newCats.find(c => c.id === 'common') || newCats[0];
-        const newLinks = links.map(l => l.categoryId === catId ? { ...l, categoryId: fallbackCategory.id } : l);
+        const newLinks = links.map(l => removedIds.has(l.categoryId) ? { ...l, categoryId: fallbackCategory.id } : l);
         updateData(newLinks, newCats);
-    }, [links, categories, updateData]);
+    }, [links, categories, updateData, notify]);
 
     const deleteCategories = useCallback((catIds: string[]) => {
-        const toDelete = new Set(catIds);
-        if (toDelete.size === 0) return;
+        if (catIds.length === 0) return;
 
-        const newCats = categories.filter(c => !toDelete.has(c.id));
+        // 级联：选中父分类时，其子分类一并删除
+        const removedIds = new Set(getCategoryCascadeIds(categories, catIds));
+        const newCats = categories.filter(c => !removedIds.has(c.id));
         if (newCats.length <= 0) {
             notify('至少保留一个分类', 'warning');
             return;
         }
 
         const fallbackCategory = newCats.find(c => c.id === 'common') || newCats[0];
-        const newLinks = links.map(l => toDelete.has(l.categoryId) ? { ...l, categoryId: fallbackCategory.id } : l);
+        const newLinks = links.map(l => removedIds.has(l.categoryId) ? { ...l, categoryId: fallbackCategory.id } : l);
         updateData(newLinks, newCats);
     }, [links, categories, updateData, notify]);
 
     const importData = useCallback((newLinks: LinkItem[], newCategories: Category[]) => {
         const mergedCategories = [...categories];
+        const knownIds = new Set(mergedCategories.map(c => c.id));
+        const incomingIds = new Set(newCategories.map(c => c.id));
+
         newCategories.forEach(nc => {
-            if (!mergedCategories.some(c => c.id === nc.id || c.name === nc.name)) {
-                mergedCategories.push(nc);
-            }
+            // 同名 + 同父级才算重复（不同父分类下允许同名子分类）
+            const duplicated = mergedCategories.some(
+                c => c.id === nc.id || (c.name === nc.name && (c.parentId || '') === (nc.parentId || ''))
+            );
+            if (duplicated) return;
+
+            // 父分类既不在现有分类里、也不在本批导入里 → 降级为顶级，避免孤儿分类
+            const parentAvailable = nc.parentId
+                ? (knownIds.has(nc.parentId) || incomingIds.has(nc.parentId))
+                : false;
+            const next = parentAvailable ? nc : { ...nc, parentId: undefined };
+            mergedCategories.push(next);
+            knownIds.add(next.id);
         });
+
+        // 兜底：导入的数据本身若含三级 / 自指 / 失效父级，一并修正，保证只存在两级
+        const normalizedCategories = normalizeCategoryParents(mergedCategories);
+
         const mergedLinks = [...links, ...newLinks];
-        updateData(mergedLinks, mergedCategories);
+        updateData(mergedLinks, normalizedCategories);
     }, [links, categories, updateData]);
 
     return {

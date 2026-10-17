@@ -24,6 +24,9 @@ export const PRIVACY_AUTO_UNLOCK_KEY = 'ynav_privacy_auto_unlock';
 export const PRIVACY_SESSION_UNLOCKED_KEY = 'ynav_privacy_session_unlocked';
 export const PRIVATE_CATEGORY_ID = '__private__';
 
+// 侧边栏：被手动折叠的父分类 id 列表（默认全部展开）
+export const SIDEBAR_COLLAPSED_CATEGORIES_KEY = 'ynav_sidebar_collapsed_categories';
+
 // Sync Configuration
 export const SYNC_DEBOUNCE_MS = 3000; // 3秒内无新操作则触发同步
 export const SYNC_API_ENDPOINT = '/api/v1/sync';

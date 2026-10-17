@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Copy, Edit2, Trash2, Pin, CopyPlus, FolderInput, ChevronRight, Eye, EyeOff } from 'lucide-react';
 import { Category } from '../../types';
+import { flattenCategoryTree } from '../../utils/categoryTree';
 
 interface ContextMenuProps {
   isOpen: boolean;
@@ -122,7 +123,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
           {/* Submenu */}
           {item.hasSubmenu && (
             <div className="absolute left-full top-0 ml-1 w-48 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/60 rounded-xl shadow-xl invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-all duration-200 max-h-64 overflow-y-auto scrollbar-hide">
-              {categories.map((cat) => (
+              {flattenCategoryTree(categories).map(({ cat, depth }) => (
                 <button
                   key={cat.id}
                   onClick={(e) => {
@@ -131,8 +132,9 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
                     onMoveLink(cat.id);
                     onClose();
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left"
+                  className={`w-full flex items-center gap-1.5 py-2 pr-4 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left ${depth > 0 ? 'pl-7' : 'pl-4'}`}
                 >
+                  {depth > 0 && <span className="text-slate-300 dark:text-slate-600">└</span>}
                   <span className="truncate">{cat.name}</span>
                 </button>
               ))}

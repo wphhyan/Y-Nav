@@ -1,9 +1,18 @@
 import React, { useState } from 'react';
-import { X, ArrowUp, ArrowDown, Trash2, Edit2, Plus, Check, Palette, Square, CheckSquare, Eye, EyeOff } from 'lucide-react';
+import { X, ArrowUp, ArrowDown, Trash2, Edit2, Plus, Check, Palette, Square, CheckSquare, Eye, EyeOff, CornerDownRight } from 'lucide-react';
 import { Category } from '../../types';
 import { useDialog } from '../ui/DialogProvider';
 import Icon from '../ui/Icon';
 import IconSelector from '../ui/IconSelector';
+import {
+  canSetParent,
+  flattenCategoryTree,
+  getCategoryCascadeIds,
+  getChildCategories,
+  getSiblingCategories,
+  getTopLevelCategories,
+  isTopLevelCategory
+} from '../../utils/categoryTree';
 
 interface CategoryManagerModalProps {
   isOpen: boolean;
@@ -28,10 +37,12 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   const [editName, setEditName] = useState('');
   const [editIcon, setEditIcon] = useState('');
   const [editHidden, setEditHidden] = useState(false);
+  const [editParentId, setEditParentId] = useState('');
 
   const [newCatName, setNewCatName] = useState('');
   const [newCatIcon, setNewCatIcon] = useState('Folder');
   const [newCatHidden, setNewCatHidden] = useState(false);
+  const [newCatParentId, setNewCatParentId] = useState('');
 
   const [isIconSelectorOpen, setIsIconSelectorOpen] = useState(false);
   const [iconSelectorTarget, setIconSelectorTarget] = useState<'edit' | 'new' | null>(null);
@@ -40,6 +51,9 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const { notify, confirm } = useDialog();
+
+  // 带层级的展示顺序（顶级在前，子分类紧随其父）
+  const categoryNodes = React.useMemo(() => flattenCategoryTree(categories), [categories]);
 
   if (!isOpen) return null;
 
@@ -73,10 +87,14 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   };
 
   const getFallbackCategory = (excludeIds: Set<string>) => {
-    const remaining = categories.filter(c => !excludeIds.has(c.id));
+    // 级联：被删除分类的子分类也一并排除
+    const cascadeExclude = new Set(getCategoryCascadeIds(categories, Array.from(excludeIds)));
+    const remaining = categories.filter(c => !cascadeExclude.has(c.id));
     if (remaining.length === 0) return null;
     const common = remaining.find(c => c.id === 'common');
-    return common || remaining[0];
+    if (common) return common;
+    // 优先把书签落到顶级分类，避免落到子分类里难以发现
+    return remaining.find(c => isTopLevelCategory(remaining, c)) || remaining[0];
   };
 
   // 批量删除
@@ -94,7 +112,7 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
 
     const shouldDelete = await confirm({
       title: '删除分类',
-      message: `确定删除选中的 ${selectedCategories.size} 个分类吗？这些分类下的书签将移动到"${fallbackCategory.name}"。`,
+      message: `确定删除选中的 ${selectedCategories.size} 个分类${buildChildHint(Array.from(selectedCategories))}吗？这些分类下的书签将移动到"${fallbackCategory.name}"。`,
       confirmText: '删除',
       cancelText: '取消',
       variant: 'danger'
@@ -111,18 +129,33 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     setIsBatchMode(false);
   };
 
-  const handleMove = (index: number, direction: 'up' | 'down') => {
+  const handleMove = (cat: Category, direction: 'up' | 'down') => {
+    // 只在同级内移动，避免把子分类挪到别的父分类下面
+    const siblings = getSiblingCategories(categories, cat);
+    const currentIndex = siblings.findIndex(c => c.id === cat.id);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= siblings.length) return;
+
+    const target = siblings[targetIndex];
     const newCats = [...categories];
-    if (direction === 'up' && index > 0) {
-      [newCats[index], newCats[index - 1]] = [newCats[index - 1], newCats[index]];
-    } else if (direction === 'down' && index < newCats.length - 1) {
-      [newCats[index], newCats[index + 1]] = [newCats[index + 1], newCats[index]];
-    }
+    const a = newCats.findIndex(c => c.id === cat.id);
+    const b = newCats.findIndex(c => c.id === target.id);
+    if (a === -1 || b === -1) return;
+    [newCats[a], newCats[b]] = [newCats[b], newCats[a]];
     onUpdateCategories(newCats);
   };
 
   const handleStartEdit = (cat: Category) => {
     startEdit(cat);
+  };
+
+  // 删除提示：附带将被级联删除的子分类数量
+  const buildChildHint = (ids: string[]) => {
+    const cascade = getCategoryCascadeIds(categories, ids);
+    const extra = cascade.length - new Set(ids).size;
+    return extra > 0 ? `（将同时删除其下的 ${extra} 个子分类）` : '';
   };
 
   const handleDeleteClick = async (cat: Category) => {
@@ -132,9 +165,10 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
       return;
     }
 
+    const childHint = buildChildHint([cat.id]);
     const prompt = cat.id === 'common'
-      ? `确定删除默认分类"${cat.name}"吗？该分类下的书签将移动到"${fallbackCategory.name}"。`
-      : `确定删除"${cat.name}"分类吗？该分类下的书签将移动到"${fallbackCategory.name}"。`;
+      ? `确定删除默认分类"${cat.name}"吗？${childHint}该分类下的书签将移动到"${fallbackCategory.name}"。`
+      : `确定删除"${cat.name}"分类吗？${childHint}该分类下的书签将移动到"${fallbackCategory.name}"。`;
 
     const shouldDelete = await confirm({
       title: '删除分类',
@@ -154,15 +188,21 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     setEditName(cat.name);
     setEditIcon(cat.icon);
     setEditHidden(!!cat.hidden);
+    setEditParentId(cat.parentId || '');
   };
 
   const saveEdit = () => {
     if (!editingId || !editName.trim()) return;
+    // 防止把有子分类的分类挂到别人下面（会形成三级）
+    const nextParentId = editParentId && canSetParent(categories, editingId, editParentId)
+      ? editParentId
+      : undefined;
     const newCats = categories.map(c => c.id === editingId ? {
       ...c,
       name: editName.trim(),
       icon: editIcon,
-      hidden: editHidden
+      hidden: editHidden,
+      parentId: nextParentId
     } : c);
     onUpdateCategories(newCats);
     setEditingId(null);
@@ -174,12 +214,14 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
       id: Date.now().toString(),
       name: newCatName.trim(),
       icon: newCatIcon,
-      hidden: newCatHidden
+      hidden: newCatHidden,
+      parentId: newCatParentId || undefined
     };
     onUpdateCategories([...categories, newCat]);
     setNewCatName('');
     setNewCatIcon('Folder');
     setNewCatHidden(false);
+    setNewCatParentId('');
   };
 
   const openIconSelector = (target: 'edit' | 'new') => {
@@ -203,6 +245,7 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   const cancelAdd = () => {
     setNewCatName('');
     setNewCatIcon('Folder');
+    setNewCatParentId('');
   };
 
   return (
@@ -264,10 +307,19 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
         )}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {categories.map((cat, index) => (
-            <div key={cat.id} className={`flex flex-col p-3 rounded-lg group gap-2 ${isBatchMode && selectedCategories.has(cat.id)
+          {categoryNodes.map(({ cat, depth, hasChildren }) => {
+            // 上下移动只在同级内生效，因此要按同级列表判断边界
+            const siblings = getSiblingCategories(categories, cat);
+            const siblingIndex = siblings.findIndex(c => c.id === cat.id);
+            const canMoveUp = siblingIndex > 0;
+            const canMoveDown = siblingIndex !== -1 && siblingIndex < siblings.length - 1;
+
+            return (
+            <div key={cat.id} style={{ marginLeft: depth * 24 }} className={`flex flex-col p-3 rounded-lg group gap-2 ${isBatchMode && selectedCategories.has(cat.id)
               ? 'bg-accent/10 dark:bg-accent/20 border-2 border-accent'
-              : 'bg-slate-50 dark:bg-slate-700/50'
+              : depth > 0
+                ? 'bg-slate-50/70 dark:bg-slate-700/30 border border-slate-200/60 dark:border-slate-700/50'
+                : 'bg-slate-50 dark:bg-slate-700/50'
               }`}>
               <div className="flex items-center gap-2">
                 {/* 多选模式复选框 */}
@@ -288,25 +340,27 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                 {!isBatchMode && (
                   <div className="flex flex-col gap-1 mr-2">
                     <button
-                      onClick={() => handleMove(index, 'up')}
-                      disabled={index === 0}
+                      onClick={() => handleMove(cat, 'up')}
+                      disabled={!canMoveUp}
                       className="p-0.5 text-slate-400 hover:text-blue-500 disabled:opacity-30"
+                      title="上移（同级内）"
                     >
                       <ArrowUp size={14} />
                     </button>
                     <button
-                      onClick={() => handleMove(index, 'down')}
-                      disabled={index === categories.length - 1}
+                      onClick={() => handleMove(cat, 'down')}
+                      disabled={!canMoveDown}
                       className="p-0.5 text-slate-400 hover:text-blue-500 disabled:opacity-30"
+                      title="下移（同级内）"
                     >
                       <ArrowDown size={14} />
                     </button>
                   </div>
                 )}
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
                   {editingId === cat.id ? (
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-2 flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <Icon name={editIcon} size={16} />
                         <input
@@ -334,9 +388,27 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                           {editHidden ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
                       </div>
+                      {/* 所属父分类：只允许挂到顶级分类下（最多两级） */}
+                      <div className="flex items-center gap-2">
+                        <CornerDownRight size={14} className="text-slate-400 shrink-0" />
+                        <select
+                          value={editParentId}
+                          onChange={(e) => setEditParentId(e.target.value)}
+                          className="flex-1 p-1.5 px-2 text-sm rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white outline-none"
+                          title="选择所属父分类"
+                        >
+                          <option value="">顶级分类</option>
+                          {getTopLevelCategories(categories)
+                            .filter(parent => canSetParent(categories, cat.id, parent.id))
+                            .map(parent => (
+                              <option key={parent.id} value={parent.id}>{parent.name}</option>
+                            ))}
+                        </select>
+                      </div>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {depth > 0 && <CornerDownRight size={13} className="text-slate-400 shrink-0" />}
                       <Icon name={cat.icon} size={16} />
                       <span className="font-medium dark:text-slate-200 truncate">
                         {cat.name}
@@ -348,6 +420,11 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                         )}
                         {cat.id === 'common' && (
                           <span className="ml-2 text-xs text-slate-400">(默认分类)</span>
+                        )}
+                        {hasChildren && (
+                          <span className="ml-2 text-xs text-slate-400">
+                            {getChildCategories(categories, cat.id).length} 个子分类
+                          </span>
                         )}
                       </span>
                     </div>
@@ -386,7 +463,8 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
@@ -417,6 +495,21 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
               >
                 {newCatHidden ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
+            </div>
+            {/* 新建时可选择挂到某个顶级分类下，构成二级分类 */}
+            <div className="flex items-center gap-2">
+              <CornerDownRight size={14} className="text-slate-400 shrink-0" />
+              <select
+                value={newCatParentId}
+                onChange={(e) => setNewCatParentId(e.target.value)}
+                className="flex-1 p-2 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                title="选择所属父分类"
+              >
+                <option value="">顶级分类</option>
+                {getTopLevelCategories(categories).map(parent => (
+                  <option key={parent.id} value={parent.id}>{parent.name}</option>
+                ))}
+              </select>
             </div>
             <div className="flex justify-end">
               <button

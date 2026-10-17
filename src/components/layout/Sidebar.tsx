@@ -1,8 +1,9 @@
 import React from 'react';
-import { Settings, ChevronLeft } from 'lucide-react';
+import { Settings, ChevronLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import { Category } from '../../types';
 import Icon from '../ui/Icon';
-import { PRIVATE_CATEGORY_ID } from '../../utils/constants';
+import { PRIVATE_CATEGORY_ID, SIDEBAR_COLLAPSED_CATEGORIES_KEY } from '../../utils/constants';
+import { flattenCategoryTree } from '../../utils/categoryTree';
 
 interface SidebarProps {
   sidebarOpen: boolean;
@@ -51,6 +52,38 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [phase, setPhase] = React.useState<'typing' | 'pausing' | 'deleting'>('typing');
   const [targetText, setTargetText] = React.useState('Nav'); // 当前要显示的目标文本
   const [displayText, setDisplayText] = React.useState(''); // 实际显示的文本
+
+  // 被手动折叠的父分类（默认全部展开，折叠状态记在本地）
+  const [collapsedCategoryIds, setCollapsedCategoryIds] = React.useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(SIDEBAR_COLLAPSED_CATEGORIES_KEY);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? new Set(parsed.map(String)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const toggleCategoryCollapsed = (categoryId: string) => {
+    setCollapsedCategoryIds(prev => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+      } else {
+        next.add(categoryId);
+      }
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_CATEGORIES_KEY, JSON.stringify(Array.from(next)));
+      } catch {
+        // 忽略存储失败（隐私模式等）
+      }
+      return next;
+    });
+  };
+
+  // 展开成带层级的展示顺序
+  const categoryTree = React.useMemo(() => flattenCategoryTree(categories), [categories]);
 
   // 核心打字机逻辑
   React.useEffect(() => {
@@ -222,43 +255,74 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Category List */}
         <div className="space-y-0.5">
-          {categories.map((cat) => {
+          {categoryTree.map(({ cat, depth, hasChildren }) => {
+            // 收起成纯图标条时，只显示顶级分类
+            if (isSidebarCollapsed && depth > 0) return null;
+            // 父分类被折叠时，隐藏其子分类
+            if (depth > 0 && cat.parentId && collapsedCategoryIds.has(cat.parentId)) return null;
+
             const isSelected = selectedCategory === cat.id;
             const count = linkCounts[cat.id] || 0;
+            const isCollapsed = collapsedCategoryIds.has(cat.id);
+
+            const rowPadding = isSidebarCollapsed
+              ? 'p-2.5'
+              : hasChildren
+                ? 'pl-6 pr-3 py-2'
+                : depth > 0
+                  ? 'pl-9 pr-3 py-2'
+                  : 'px-3 py-2';
+
             return (
-              <button
-                key={cat.id}
-                onClick={() => onSelectCategory(cat)}
-                title={isSidebarCollapsed ? cat.name : undefined}
-                className={`relative w-full rounded-xl transition-all duration-200 group ${isSidebarCollapsed
-                  ? 'flex items-center justify-center p-2.5'
-                  : 'flex items-center gap-3 px-3 py-2'
-                  } ${isSelected
-                    ? 'bg-gradient-to-r from-accent/20 via-accent/5 to-transparent text-accent shadow-sm border border-accent/10'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-slate-200 border border-transparent'
-                  }`}
-              >
-                {!isSidebarCollapsed && isSelected && (
-                  <span className="absolute left-0.5 top-1/2 -translate-y-1/2 h-6 w-1 rounded-full bg-accent shadow-[0_0_8px_rgb(var(--accent-color)/0.4)]"></span>
+              <div key={cat.id} className="relative flex items-center">
+                {!isSidebarCollapsed && hasChildren && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleCategoryCollapsed(cat.id);
+                    }}
+                    className="absolute left-1 z-10 p-0.5 rounded text-slate-400 hover:text-accent hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    title={isCollapsed ? '展开子分类' : '收起子分类'}
+                    aria-label={isCollapsed ? '展开子分类' : '收起子分类'}
+                    aria-expanded={!isCollapsed}
+                  >
+                    {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  </button>
                 )}
-                <div className={`flex items-center justify-center transition-colors ${isSidebarCollapsed ? 'p-2 rounded-lg' : 'p-1.5 rounded-md'
-                  } ${isSelected
-                    ? 'text-accent'
-                    : 'text-slate-500 dark:text-slate-500'
-                  }`}>
-                  <Icon name={cat.icon} size={16} />
-                </div>
-                {!isSidebarCollapsed && (
-                  <>
-                    <span className={`truncate flex-1 text-left text-sm ${isSelected ? 'font-medium' : ''}`}>{cat.name}</span>
-                    {count > 0 && (
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all ${isSelected ? 'bg-accent/20 text-accent' : 'bg-slate-50 dark:bg-slate-800/50 text-slate-400 border border-slate-200/50 dark:border-slate-700/50 group-hover:bg-slate-100 dark:group-hover:bg-slate-700 group-hover:border-transparent'}`}>
-                        {count}
-                      </span>
-                    )}
-                  </>
-                )}
-              </button>
+                <button
+                  onClick={() => onSelectCategory(cat)}
+                  title={isSidebarCollapsed ? cat.name : undefined}
+                  className={`relative w-full rounded-xl transition-all duration-200 group ${isSidebarCollapsed
+                    ? 'flex items-center justify-center p-2.5'
+                    : `flex items-center gap-3 ${rowPadding}`
+                    } ${isSelected
+                      ? 'bg-gradient-to-r from-accent/20 via-accent/5 to-transparent text-accent shadow-sm border border-accent/10'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-slate-200 border border-transparent'
+                    }`}
+                >
+                  {!isSidebarCollapsed && isSelected && (
+                    <span className="absolute left-0.5 top-1/2 -translate-y-1/2 h-6 w-1 rounded-full bg-accent shadow-[0_0_8px_rgb(var(--accent-color)/0.4)]"></span>
+                  )}
+                  <div className={`flex items-center justify-center transition-colors ${isSidebarCollapsed ? 'p-2 rounded-lg' : depth > 0 ? 'p-1 rounded-md' : 'p-1.5 rounded-md'
+                    } ${isSelected
+                      ? 'text-accent'
+                      : 'text-slate-500 dark:text-slate-500'
+                    }`}>
+                    <Icon name={cat.icon} size={depth > 0 ? 14 : 16} />
+                  </div>
+                  {!isSidebarCollapsed && (
+                    <>
+                      <span className={`truncate flex-1 text-left ${depth > 0 ? 'text-[13px]' : 'text-sm'} ${isSelected ? 'font-medium' : ''}`}>{cat.name}</span>
+                      {count > 0 && (
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all ${isSelected ? 'bg-accent/20 text-accent' : 'bg-slate-50 dark:bg-slate-800/50 text-slate-400 border border-slate-200/50 dark:border-slate-700/50 group-hover:bg-slate-100 dark:group-hover:bg-slate-700 group-hover:border-transparent'}`}>
+                          {count}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </button>
+              </div>
             );
           })}
         </div>

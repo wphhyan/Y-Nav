@@ -5,6 +5,7 @@ import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { Pin, Trash2, CheckSquare, Upload, Search, X, RefreshCw } from 'lucide-react';
 import { Category, LinkItem } from '../../types';
 import { PRIVATE_CATEGORY_ID } from '../../utils/constants';
+import { flattenCategoryTree } from '../../utils/categoryTree';
 import Icon from '../ui/Icon';
 import LinkCard from '../ui/LinkCard';
 import SortableLinkCard from '../ui/SortableLinkCard';
@@ -627,12 +628,13 @@ const LinkSections: React.FC<LinkSectionsProps> = ({
           onMouseEnter={cancelCloseMoveMenu}
           onMouseLeave={scheduleCloseMoveMenu}
         >
-          {categories.filter((cat) => cat.id !== selectedCategory).map((cat) => (
+          {flattenCategoryTree(categories).filter(({ cat }) => cat.id !== selectedCategory).map(({ cat, depth }) => (
             <button
               key={cat.id}
               onClick={() => handleBatchMoveSelect(cat.id)}
-              className="w-full text-left px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className={`w-full text-left py-2.5 pr-4 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${depth > 0 ? 'pl-7' : 'pl-4'}`}
             >
+              {depth > 0 && <span className="text-slate-300 dark:text-slate-600 mr-1.5">└</span>}
               {cat.name}
             </button>
           ))}
