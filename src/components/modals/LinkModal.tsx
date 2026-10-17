@@ -5,6 +5,7 @@ import { generateLinkDescription, suggestCategory } from '../../services/geminiS
 import { useDialog } from '../ui/DialogProvider';
 import { getIconToneStyle, normalizeHexColor } from '../../utils/iconTone';
 import { flattenCategoryTree } from '../../utils/categoryTree';
+import { buildFaviconProxyUrl, isFaviconServiceUrl } from '../../utils/iconUrl';
 
 const FAVICON_CACHE_KEY = 'ynav_favicon_cache';
 
@@ -151,8 +152,8 @@ const LinkModal: React.FC<LinkModalProps> = ({
       hidden
     });
 
-    // 如果有自定义图标URL，缓存到本地
-    if (icon && !icon.includes('faviconextractor.com')) {
+    // 如果有自定义图标URL，缓存到本地（favicon 服务地址不算自定义图标）
+    if (icon && !isFaviconServiceUrl(icon)) {
       cacheCustomIcon(finalUrl, icon);
     }
 
@@ -234,7 +235,13 @@ const LinkModal: React.FC<LinkModalProps> = ({
       }
 
       // 如果缓存中没有，则生成新图标
-      const iconUrl = `https://www.faviconextractor.com/favicon/${domain}?larger=true`;
+      // 使用同源代理地址 /favicon/<host>：由 Worker 代理并做边缘缓存，
+      // 避免每个图标都向第三方服务发起一次跨域握手
+      const iconUrl = buildFaviconProxyUrl(domain);
+      if (!iconUrl) {
+        notify("无法识别该网址的域名，请检查URL是否正确", 'error');
+        return;
+      }
       setIcon(iconUrl);
       // 将图标保存到本地缓存
       try {

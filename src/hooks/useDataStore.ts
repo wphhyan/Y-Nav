@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { LinkItem, Category, DEFAULT_CATEGORIES, INITIAL_LINKS } from '../types';
 import { arrayMove } from '@dnd-kit/sortable';
 import { LOCAL_STORAGE_KEY, FAVICON_CACHE_KEY } from '../utils/constants';
+import { isFaviconServiceUrl } from '../utils/iconUrl';
 import { getCategoryCascadeIds, normalizeCategoryParents } from '../utils/categoryTree';
 import { useDialog } from '../components/ui/DialogProvider';
 
@@ -33,7 +34,7 @@ export const useDataStore = () => {
                 const urlObj = new URL(domain);
                 const cachedIcon = cache[urlObj.hostname];
                 if (!cachedIcon) return link;
-                if (!link.icon || link.icon.includes('faviconextractor.com') || !cachedIcon.includes('faviconextractor.com')) {
+                if (!link.icon || isFaviconServiceUrl(link.icon) || !isFaviconServiceUrl(cachedIcon)) {
                     return { ...link, icon: cachedIcon };
                 }
             } catch (e) {

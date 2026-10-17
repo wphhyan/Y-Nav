@@ -59,6 +59,12 @@ const KV_LEGACY_MAIN_DATA_KEY = 'ynav:data';
 const KV_LEGACY_BACKUP_PREFIX = 'ynav:backup:';
 const BACKUP_TTL_SECONDS = 30 * 24 * 60 * 60;
 
+// --- favicon 同源代理 ---
+const FAVICON_PATH_PREFIX = '/favicon/';
+const FAVICON_UPSTREAM = 'https://www.faviconextractor.com/favicon/';
+const FAVICON_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 天
+const FAVICON_HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+
 // ============================================
 // 辅助函数
 // ============================================
@@ -408,6 +414,74 @@ async function handleDeleteBackup(request: Request, env: Env): Promise<Response>
 }
 
 // ============================================
+// favicon 同源代理
+// ============================================
+
+/**
+ * GET /favicon/<host>
+ *
+ * 卡片图标原先直接引用 faviconextractor.com 的跨域地址：实测每个图标
+ * TLS 0.65~0.81s、TTFB 1.26~1.44s、约 6.5KB，首页十几个图标会拖出数秒长尾
+ * （173 条数据里最多单页 25 个图标）。
+ *
+ * 这里改为同源代理 + 边缘缓存：
+ * - 浏览器复用主站连接，不再为图标额外握手；
+ * - 同一域名全网只回源一次，之后由边缘直接返回。
+ */
+async function handleFavicon(request: Request, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const host = decodeURIComponent(url.pathname.slice(FAVICON_PATH_PREFIX.length))
+        .replace(/\/+$/, '')
+        .toLowerCase();
+
+    // 严格校验 hostname，避免这个入口变成任意 URL 代理
+    if (!host || host.length > 253 || !FAVICON_HOSTNAME_PATTERN.test(host)) {
+        return notFoundFavicon();
+    }
+
+    // 缓存键去掉查询串，避免 ?v=xxx 之类的参数击穿缓存
+    const cacheKey = new Request(`${url.origin}${FAVICON_PATH_PREFIX}${host}`, { method: 'GET' });
+    const cache = caches.default;
+
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+
+    let upstream: Response;
+    try {
+        upstream = await fetch(`${FAVICON_UPSTREAM}${encodeURIComponent(host)}?larger=true`, {
+            headers: { 'Accept': 'image/*' }
+        });
+    } catch {
+        return notFoundFavicon();
+    }
+
+    if (!upstream.ok || !upstream.body) {
+        return notFoundFavicon();
+    }
+
+    const response = new Response(upstream.body, {
+        status: 200,
+        headers: {
+            'Content-Type': upstream.headers.get('Content-Type') || 'image/x-icon',
+            'Cache-Control': `public, max-age=${FAVICON_CACHE_TTL_SECONDS}, immutable`
+        }
+    });
+
+    try {
+        ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    } catch {
+        // 写缓存失败不影响本次响应
+    }
+
+    return response;
+}
+
+/** 取不到图标时返回 404（前端会回退成首字母占位），且不缓存失败结果 */
+function notFoundFavicon(): Response {
+    return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+}
+
+// ============================================
 // 主入口
 // ============================================
 
@@ -418,6 +492,11 @@ export default {
         // API 路由
         if (url.pathname.startsWith('/api/sync') || url.pathname.startsWith('/api/v1/sync')) {
             return handleApiSync(request, env);
+        }
+
+        // favicon 同源代理（边缘缓存 30 天）
+        if (url.pathname.startsWith(FAVICON_PATH_PREFIX)) {
+            return handleFavicon(request, ctx);
         }
 
         // 其余请求交给 Static Assets 绑定。
