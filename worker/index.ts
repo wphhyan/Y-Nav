@@ -481,6 +481,53 @@ function notFoundFavicon(): Response {
     return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
 }
 
+// --- 静态资源 / SPA 回退 ---
+/** 这些前缀下的路径缺失时必须老实返回 404，绝不能回退成 index.html */
+const NO_FALLBACK_PREFIXES = ['/assets/', '/favicon/', '/api/'];
+
+/**
+ * 处理静态资源请求。
+ *
+ * wrangler.toml 里的 `not_found_handling = "none"`，所以未命中的路径会走到这里。
+ *
+ * 为什么不用平台内置的 `"single-page-application"` 兜底：
+ * 它会让 `/assets/xxx.js`（已下线的旧哈希、或写错的路径）**返回 index.html 且是 200**，
+ * 而 `public/_headers` 给 `/assets/*` 设了 `immutable`，于是这个 HTML 会被浏览器缓存一年，
+ * 表现为"站点坏了且刷不回来"。这里把回退收进 Worker，就能对资源路径返回真正的 404，
+ * 前端下次刷新即可自愈。
+ *
+ * 回退条件（三者同时满足才回退）：
+ * 1. 方法为 GET / HEAD（导航请求）；
+ * 2. Accept 里带 text/html（说明是浏览器地址栏/页面跳转，而不是 fetch、图片、脚本）；
+ * 3. 路径不属于 NO_FALLBACK_PREFIXES。
+ */
+async function serveStatic(request: Request, env: Env): Promise<Response> {
+    const response = await env.ASSETS.fetch(request);
+    if (response.status !== 404) {
+        return response;
+    }
+
+    const url = new URL(request.url);
+    const isNavigation = request.method === 'GET' || request.method === 'HEAD';
+    const acceptsHtml = (request.headers.get('Accept') || '').includes('text/html');
+    const isFallbackAllowedPath = !NO_FALLBACK_PREFIXES.some(prefix => url.pathname.startsWith(prefix));
+
+    if (!isNavigation || !acceptsHtml || !isFallbackAllowedPath) {
+        // 缺失的资源：返回真正的 404，并强制不缓存。
+        // （_headers 给 /assets/* 设了 immutable，这里必须显式覆盖掉）
+        const headers = new Headers(response.headers);
+        headers.set('Cache-Control', 'no-store');
+        return new Response(response.body, { status: 404, headers });
+    }
+
+    // SPA 深链接：回退到 index.html
+    const indexResponse = await env.ASSETS.fetch(new Request(new URL('/index.html', url.origin), { method: 'GET' }));
+    if (request.method === 'HEAD') {
+        return new Response(null, { status: indexResponse.status, headers: indexResponse.headers });
+    }
+    return indexResponse;
+}
+
 // ============================================
 // 主入口
 // ============================================
@@ -499,10 +546,7 @@ export default {
             return handleFavicon(request, ctx);
         }
 
-        // 其余请求交给 Static Assets 绑定。
-        // - 命中静态资源：直接返回该文件；
-        // - 未命中：由 wrangler.toml 的 not_found_handling = "single-page-application"
-        //   兜底返回 index.html (200)，SPA 深链接因此可用。
-        return env.ASSETS.fetch(request);
+        // 静态资源（命中直接返回；未命中按需回退 index.html 或 404）
+        return serveStatic(request, env);
     }
 };
